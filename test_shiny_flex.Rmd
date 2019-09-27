@@ -1,0 +1,398 @@
+---
+title: "CPI Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(DT)
+library(lubridate)
+library(plotly)
+
+data <- read.csv("metricas_cpi_test_dashboard.csv")
+data[,1] <- as.Date(data$ga.date, format="%m/%d/%Y")
+data_filtered_weekday <- data%>%
+  filter(weekday==1)
+
+#data_filtered_weekday$Pages.per.session[data_filtered_weekday$Pages.per.session=='#DIV/0!'] <- NA
+
+data_filtered_weekday <- mutate(data_filtered_weekday, pages_per_session = ga.pageviews/ga.sessions)
+
+avg_month_weekday <- data_filtered_weekday %>%
+  mutate(year = year(as.Date(ga.date, format = '%m/%d/%Y')),
+         month = month(as.Date(ga.date, format = '%m/%d/%Y')))%>%
+  group_by(year, month) %>%
+  summarise(
+    avg_user = mean(ga.users),
+    avg_sessions = mean(ga.sessions),
+    avg_bounce_rate = mean(ga.bounceRate),
+    session_duration = mean(ga.sessionDuration),
+    avg_session_duration = mean(ga.avgSessionDuration),
+    avg_pageviews = mean(ga.pageviews),
+    avg_pages_per_session = mean(as.numeric(pages_per_session), na.rm = TRUE)
+  )
+
+avg_month_aggregate <- data %>%
+  mutate(year = year(as.Date(ga.date, format = '%m/%d/%Y')),
+         month = month(as.Date(ga.date, format = '%m/%d/%Y'))) %>%
+  group_by(year, month) %>%
+  summarise(
+    avg_user = mean(ga.users)
+  )
+
+avg_month_weekday$year <- as.factor(avg_month_weekday$year)
+avg_month_weekday$month <- as.factor(avg_month_weekday$month)
+
+
+```
+
+Metricas Dia de Semana
+======================================================================
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+### Selecciones Mes de interes
+
+```{r}
+
+selectInput(inputId = "mes",label = "Selecciona mes",choices = c("Enero"=1,"Febrero"=2,"Marzo"=3,"Abril"=4,"Mayo"=5,"Junio"=6,"Julio"=7,"Agosto"=8,"Septiembre"=9,"Octubre"=10,"Noviembre"=11,"Diciembre"=12))
+```
+
+#Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Average Users Weekdays
+
+```{r}
+
+
+avg_month_filtered <- reactive(avg_month_weekday %>%
+  filter(month== input$mes))
+
+renderPlot({
+  avg_month_filtered() %>%
+    ggplot(data=avg_month_filtered(),mapping = aes(x=year,y = avg_user, group = 1))  + geom_line()+geom_point()
+})
+
+```
+
+### Average Users All Days
+
+```{r}
+data <- mutate(data, pages_per_session = ga.pageviews/ga.sessions)
+
+avg_month_aggregate <- data %>%
+  mutate(year = year(as.Date(ga.date, format = '%m/%d/%Y')),
+         month = month(as.Date(ga.date, format = '%m/%d/%Y'))) %>%
+  group_by(year, month) %>%
+  summarise(
+    avg_user = mean(ga.users),
+    avg_sessions = mean(ga.sessions),
+    avg_bounce_rate = mean(ga.bounceRate),
+    session_duration = mean(ga.sessionDuration),
+    avg_session_duration = mean(ga.avgSessionDuration),
+    avg_pageviews = mean(ga.pageviews),
+    avg_pages_per_session = mean(as.numeric(pages_per_session), na.rm = TRUE)
+  )
+
+avg_month_aggregate$year <- as.factor(avg_month_aggregate$year)
+avg_month_aggregate$month <- as.factor(avg_month_aggregate$month)
+
+avg_month_unfiltered <- reactive(avg_month_aggregate %>%
+  filter(month== input$mes))
+
+renderPlot({
+  avg_month_unfiltered() %>%
+    ggplot(data=avg_month_unfiltered(),mapping = aes(x=year,y = avg_user, group = 1))  + geom_line()+geom_point()
+})
+
+```
+
+
+Row
+--------------------------------------------------------------------
+
+### Data Weekdays
+
+```{r}
+renderTable({
+  avg_month_filtered()
+})
+```
+
+
+### Data All Days
+
+```{r}
+renderTable({
+  avg_month_unfiltered()
+})
+```
+
+
+30 day moving average
+=============================================
+Row
+--------------------------------------------------
+### Daily Users
+
+```{r}
+data_dia_semana <- data 
+
+data_filter_dias <- data_dia_semana%>%
+  filter(day(ga.date)==1 | day(ga.date)==15)
+
+data_filter_dias <- data_filter_dias[,1]
+
+data_filter_dias <- as.data.frame(data_filter_dias)
+
+names(data_filter_dias)[names(data_filter_dias) == "data_filter_dias"] <- "fecha_inicial"
+
+data_filter_dias$fecha_final <- NA
+
+for(i in 1:(nrow(data_filter_dias)-1)){
+  data_filter_dias[i,2] <- as.Date(data_filter_dias[i+2,1])-1
+}
+
+data_filter_dias[,2] <- as.Date(data_filter_dias[,2], origin = lubridate::origin)
+
+if(day(data_filter_dias[(nrow(data_filter_dias)-1),1])==1){
+  data_filter_dias[(nrow(data_filter_dias)-1),2] <- data_filter_dias[(nrow(data_filter_dias)-1),1] 
+  month(data_filter_dias[(nrow(data_filter_dias)-1),2]) <- month(data_filter_dias[(nrow(data_filter_dias)-1),1]) + 1
+  day(data_filter_dias[(nrow(data_filter_dias)-1),2]) <- day(data_filter_dias[(nrow(data_filter_dias)-1),1]) -1
+} else {
+  data_filter_dias[(nrow(data_filter_dias)-1),2] <- data_filter_dias[(nrow(data_filter_dias)-1),1]
+  month(data_filter_dias[(nrow(data_filter_dias)-1),2]) <- month(data_filter_dias[(nrow(data_filter_dias)-1),1]) + 1
+  day(data_filter_dias[(nrow(data_filter_dias)-1),2]) <- day(data_filter_dias[(nrow(data_filter_dias)-1),1]) -1
+}
+
+if(day(data_filter_dias[(nrow(data_filter_dias)),1])==1){
+  data_filter_dias[(nrow(data_filter_dias)),2] <- data_filter_dias[(nrow(data_filter_dias)),1] 
+  month(data_filter_dias[(nrow(data_filter_dias)),2]) <- month(data_filter_dias[(nrow(data_filter_dias)),1]) + 1
+  day(data_filter_dias[(nrow(data_filter_dias)),2]) <- day(data_filter_dias[(nrow(data_filter_dias)),1]) -1
+} else {
+  data_filter_dias[(nrow(data_filter_dias)),2] <- data_filter_dias[(nrow(data_filter_dias)),1]
+  month(data_filter_dias[(nrow(data_filter_dias)),2]) <- month(data_filter_dias[(nrow(data_filter_dias)),1]) + 1
+  day(data_filter_dias[(nrow(data_filter_dias)),2]) <- day(data_filter_dias[(nrow(data_filter_dias)),1]) -1
+}
+ 
+data_filter_dias$users <- NA
+data_filter_dias$sessions <- NA
+data_filter_dias$bouncerate <- NA
+data_filter_dias$sessionsduration <- NA
+data_filter_dias$avgsessionduration <- NA
+data_filter_dias$pageviews <- NA
+
+
+data_dia_semana <- data_dia_semana %>%
+  filter(data_dia_semana[,8]==1)
+
+for (i in 1:nrow(data_filter_dias)){
+  data_filter_dias[i,3] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,2])
+  data_filter_dias[i,4] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,3])
+  data_filter_dias[i,5] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,4])
+  data_filter_dias[i,6] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,5])
+  data_filter_dias[i,7] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,6])
+  data_filter_dias[i,8] <- mean(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,7])
+  #data_filter_dias[i,9] <- mean(as.numeric(filter(data_dia_semana, as.Date(data_dia_semana[,1])>=ymd(data_filter_dias[i,1]) & as.Date(data_dia_semana[,1])<=ymd(data_filter_dias[i,2]))[,9]))
+}
+
+data_filter_dias$pageviews_per_session <- data_filter_dias$pageviews / data_filter_dias$sessions
+
+data_filter_dias_2016 <- data_filter_dias %>%
+  filter(year(data_filter_dias[,1]) == 2016)
+
+data_filter_dias_2017 <- data_filter_dias %>%
+  filter(year(data_filter_dias[,1]) == 2017)
+
+data_filter_dias_2018 <- data_filter_dias %>%
+  filter(year(data_filter_dias[,1]) == 2018)
+data_filter_dias_2019 <- data_filter_dias %>%
+  filter(year(data_filter_dias[,1]) == 2019)
+
+
+data_filter_dias_2016$fecha <- paste0(as.character(month(data_filter_dias_2016[,1])),"-",as.character(day(data_filter_dias_2016[,1])))
+data_filter_dias_2017$fecha <- paste0(as.character(month(data_filter_dias_2017[,1])),"-",as.character(day(data_filter_dias_2017[,1])))
+data_filter_dias_2018$fecha <- paste0(as.character(month(data_filter_dias_2018[,1])),"-",as.character(day(data_filter_dias_2018[,1])))
+data_filter_dias_2019$fecha <- paste0(as.character(month(data_filter_dias_2019[,1])),"-",as.character(day(data_filter_dias_2019[,1])))
+
+for (i in 1:12){
+  data_filter_dias_2019[nrow(data_filter_dias_2019)+1,] <- NA
+}
+
+
+fechas <- c("Jan 1","Jan 15","Feb 1","Feb 15","Mar 1","Mar 15","Apr 1","Apr 15","May 1","May 15","Jun 1","Jun 15","Jul 1","Jul 15","Aug 1",
+            "Aug 15","Sep 1","Sep 15","Oct 1","Oct 15","Nov 1","Nov 15","Dec 1","Dec 15")
+datos <- data.frame(fechas, as.vector(data_filter_dias_2016$users), as.vector(data_filter_dias_2017$users), as.vector(data_filter_dias_2018$users), as.vector(data_filter_dias_2019$users))
+
+datos$fechas <- factor(datos$fechas, levels = datos[["fechas"]])
+
+
+p6 <- datos %>%
+  plot_ly(x = ~fechas,
+               y = ~as.vector.data_filter_dias_2016.users.,
+               text = paste("Fecha:", datos$fechas,
+                            "Users:",
+                            datos$as.vector.data_filter_dias_2016.users.),
+               type = 'scatter',
+               name = '2016',
+               mode = 'lines + markers') %>%
+  add_trace(y = ~datos$as.vector.data_filter_dias_2017.users., name = '2017', mode = "lines+markers") %>%
+  add_trace(y = ~datos$as.vector.data_filter_dias_2018.users., name = '2018', mode = "lines+markers") %>%
+  add_trace(y = ~datos$as.vector.data_filter_dias_2019.users., name = '2019', mode = "lines+markers") %>%
+  layout(xaxis = list(title="Fecha", showline=TRUE),
+         yaxis = list(title = "Users", showline=TRUE))
+p6
+
+```
+
+### Pageviews per Session
+
+```{r}
+datos_pageviews <- data.frame(fechas, as.vector(data_filter_dias_2016$pageviews_per_session), as.vector(data_filter_dias_2017$pageviews_per_session), as.vector(data_filter_dias_2018$pageviews_per_session), as.vector(data_filter_dias_2019$pageviews_per_session))
+
+datos_pageviews$fechas <- factor(datos_pageviews$fechas, levels = datos_pageviews[["fechas"]])
+
+p7 <- datos_pageviews %>%
+  plot_ly(x = ~fechas,
+               y = ~as.vector.data_filter_dias_2016.pageviews_per_session.,
+               text = paste("Fecha:", datos_pageviews$fechas,
+                            "Users:",
+                            datos_pageviews$as.vector.data_filter_dias_2016.pageviews_per_session.),
+               type = 'scatter',
+               name = '2016',
+               mode = 'lines + markers') %>%
+  add_trace(y = ~datos_pageviews$as.vector.data_filter_dias_2017.pageviews_per_session., name = '2017', mode = "lines+markers") %>%
+  add_trace(y = ~datos_pageviews$as.vector.data_filter_dias_2018.pageviews_per_session., name = '2018', mode = "lines+markers") %>%
+  add_trace(y = ~datos_pageviews$as.vector.data_filter_dias_2019.pageviews_per_session., name = '2019', mode = "lines+markers") %>%
+  layout(xaxis = list(title="Fecha", showline=TRUE),
+         yaxis = list(title = "Pageviews per Session", showline=TRUE))
+p7
+```
+
+Row
+---------------------------------------
+
+### Average Session Duration
+
+```{r}
+datos_avgsessionduration <- data.frame(fechas, as.vector(data_filter_dias_2016$avgsessionduration), as.vector(data_filter_dias_2017$avgsessionduration), as.vector(data_filter_dias_2018$avgsessionduration), as.vector(data_filter_dias_2019$avgsessionduration))
+
+datos_avgsessionduration$fechas <- factor(datos_avgsessionduration$fechas, levels = datos_avgsessionduration[["fechas"]])
+
+p8 <- datos_avgsessionduration %>%
+  plot_ly(x = ~fechas,
+               y = ~as.vector.data_filter_dias_2016.avgsessionduration.,
+               text = paste("Fecha:", datos_avgsessionduration$fechas,
+                            "Users:",
+                            datos_avgsessionduration$as.vector.data_filter_dias_2016.avgsessionduration.),
+               type = 'scatter',
+               name = '2016',
+               mode = 'lines + markers') %>%
+  add_trace(y = ~datos_avgsessionduration$as.vector.data_filter_dias_2017.avgsessionduration., name = '2017', mode = "lines+markers") %>%
+  add_trace(y = ~datos_avgsessionduration$as.vector.data_filter_dias_2018.avgsessionduration., name = '2018', mode = "lines+markers") %>%
+  add_trace(y = ~datos_avgsessionduration$as.vector.data_filter_dias_2019.avgsessionduration., name = '2019', mode = "lines+markers") %>%
+  layout(xaxis = list(title="Fecha", showline=TRUE),
+         yaxis = list(title = "Average Session Duration", showline=TRUE))
+p8
+
+```
+
+
+### Average Daily Bounce Rate
+
+```{r}
+datos_bouncerate <- data.frame(fechas, as.vector(data_filter_dias_2016$bouncerate), as.vector(data_filter_dias_2017$bouncerate), as.vector(data_filter_dias_2018$bouncerate), as.vector(data_filter_dias_2019$bouncerate))
+
+datos_bouncerate$fechas <- factor(datos_bouncerate$fechas, levels = datos_bouncerate[["fechas"]])
+
+p9 <- datos_bouncerate %>%
+  plot_ly(x = ~fechas,
+               y = ~as.vector.data_filter_dias_2016.bouncerate.,
+               text = paste("Fecha:", datos_bouncerate$fechas,
+                            "Users:",
+                            datos_bouncerate$as.vector.data_filter_dias_2016.bouncerate.),
+               type = 'scatter',
+               name = '2016',
+               mode = 'lines + markers') %>%
+  add_trace(y = ~datos_bouncerate$as.vector.data_filter_dias_2017.bouncerate., name = '2017', mode = "lines+markers") %>%
+  add_trace(y = ~datos_bouncerate$as.vector.data_filter_dias_2018.bouncerate., name = '2018', mode = "lines+markers") %>%
+  add_trace(y = ~datos_bouncerate$as.vector.data_filter_dias_2019.bouncerate., name = '2019', mode = "lines+markers") %>%
+  layout(xaxis = list(title="Fecha", showline=TRUE),
+         yaxis = list(title = "Average Daily Bounce Rate", showline=TRUE))
+p9
+
+```
+
+Bounce Rate 
+=============================================
+Row
+--------------------------------------------------
+### Bounce Rate Competitors
+```{r}
+bounce_rates_data <- read.csv("bounce_rate.csv")
+bounce_rates_data[,1] <- as.Date(bounce_rates_data[,1], "%m/%d/%Y")
+p10 <- bounce_rates_data %>%
+  plot_ly(x = ~date,
+               y = ~concurrences.com,
+               text = paste("Fecha:", bounce_rates_data$date,
+                            "Bounce Rate:",
+                            bounce_rates_data$concurrences.com),
+               type = 'scatter',
+               name = 'concurrences.com',
+               mode = 'lines + markers') %>%
+  add_trace(y = ~bounce_rates_data$law360.com, name = 'law360.com', mode = "lines+markers") %>%
+  add_trace(y = ~bounce_rates_data$competitionpolicyinternational.com, name = 'CPI', mode = "lines+markers") %>%
+  layout(xaxis = list(title="Fecha", showline=TRUE),
+         yaxis = list(title = "Bounce Rate", showline=TRUE))
+p10
+```
+
+Row
+---------------------------------------------------
+```{r}
+competitor <- c('concurrences.com','law360.com','CPI')
+average <- c(mean(bounce_rates_data[,2]), mean(bounce_rates_data[,3]), mean(bounce_rates_data[,4]))
+standard_deviation <- c(sd(bounce_rates_data[,2]), sd(bounce_rates_data[,3]), sd(bounce_rates_data[,4]))
+tabla_br <- data.frame(competitor, average, standard_deviation)
+
+datatable(tabla_br,
+          caption = "Bounce Rate Competitors",
+          rownames = T,
+          filter = "top",
+          options = list(pageLength = 25))
+
+```
+
+### Pagepaths
+
+```{r}
+pagepaths <- read.csv("D:/Dropbox (MPD)/Analytics Argentina/Dashboard/CPI/reportes mensuales/2019 - 15 a 30 de junio/pagepath.csv")
+
+datatable(pagepaths,
+          caption = "Pagepath",
+          rownames = T,
+          filter = "top",
+          options = list(pageLength = 25))
+
+```
+
+
+Country 
+=============================================
+
+### Country
+
+```{r}
+country <- read.csv("D:/Dropbox (MPD)/Analytics Argentina/Dashboard/CPI/reportes mensuales/2019 - 15 a 30 de junio/country.csv")
+
+datatable(country,
+          caption = "Country",
+          rownames = T,
+          filter = "top",
+          options = list(pageLength = 25))
+
+```
